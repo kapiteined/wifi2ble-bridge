@@ -70,7 +70,6 @@ Voor afsluiten: `Ctrl+C` stopt listener, actieve TCP sessie(s) en BLE sessie.
 - [python/](python/) Python scripts en requirements
 - [src/](src/) C build artefacten / binary (`mesh-emu`)
 - [install.sh](install.sh) Linux installer (prefix-based)
-- [start.sh](start.sh) legacy relay wrapper (functioneel, maar [run_relay.sh](run_relay.sh) is de voorkeursroute)
 
 ## Privacy / local config
 

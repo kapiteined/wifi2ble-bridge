@@ -29,12 +29,17 @@ import sys
 from dataclasses import dataclass
 from typing import Optional
 
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 
 MESHCORE_RX_UUID = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"  # app -> firmware
 MESHCORE_TX_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"  # firmware -> app
 TCP_FRAME_APP_TO_DEVICE = 0x3C  # '<'
 TCP_FRAME_DEVICE_TO_APP = 0x3E  # '>'
+
+# BLE connection behaviour
+_BLE_CONNECT_RETRIES = 3      # total attempts before giving up
+_BLE_SETTLE_DELAY   = 0.35    # seconds to wait after connect before start_notify
+_BLE_NOTIFY_RETRIES = 3       # start_notify retries per connect attempt
 
 COMMAND_NAMES = {
     0x01: "AppStart",
@@ -71,6 +76,7 @@ class RelayConfig:
     ble_address: str
     ble_rx_uuid: str
     ble_tx_uuid: str
+    ble_scan_timeout: float
     debug_io: bool
 
 
@@ -240,6 +246,21 @@ class MeshcoreTcpBleRelay:
 
         return payloads
 
+    async def _find_ble_device(self):
+        """Scan for device; fall back to address string so BlueZ can use cached paired device."""
+        self._debug(f"Scanning for BLE device (timeout={self.config.ble_scan_timeout}s)")
+        device = await BleakScanner.find_device_by_address(
+            self.config.ble_address,
+            timeout=self.config.ble_scan_timeout,
+        )
+        if device is not None:
+            self._debug(f"Found device via scan: {device.name or '(unnamed)'} [{device.address}]")
+            return device
+        # Device not found in scan — might be paired/bonded and not advertising.
+        # Pass address string so BlueZ can connect via its device cache.
+        print(f"[warn] BLE device not found in scan, attempting direct connect (paired device?)")
+        return self.config.ble_address
+
     async def _run_client_session(
         self,
         reader: asyncio.StreamReader,
@@ -250,87 +271,137 @@ class MeshcoreTcpBleRelay:
             print("[error] BLE address not provided; set --ble-address")
             return
 
-        print(f"[info] Connecting to BLE device: {self.config.ble_address}")
-        try:
-            def _on_ble_disconnected(_client: BleakClient) -> None:
-                self._debug("BLE connection lost")
+        max_ble_attempts = _BLE_CONNECT_RETRIES
+        for ble_attempt in range(1, max_ble_attempts + 1):
+            if self._shutdown_event.is_set():
+                return
 
-            async with BleakClient(self.config.ble_address, disconnected_callback=_on_ble_disconnected) as ble_client:
-                print(f"[info] Connected to BLE companion")
-                self._debug("BLE connection established")
+            print(f"[info] Connecting to BLE device: {self.config.ble_address}")
+            try:
+                ble_target = await self._find_ble_device()
 
-                ble_rx_queue = asyncio.Queue()
+                def _on_ble_disconnected(_client: BleakClient) -> None:
+                    self._debug("BLE connection lost")
 
-                def on_ble_notification(sender, data):
-                    """Non-async BLE callback; queue for async handler."""
-                    if self._shutdown_event.is_set():
-                        return
-                    try:
-                        ble_rx_queue.put_nowait(data)
-                    except asyncio.QueueFull:
-                        print("[warn] BLE RX queue full, dropping notification")
+                async with BleakClient(
+                    ble_target,
+                    timeout=10.0,
+                    disconnected_callback=_on_ble_disconnected,
+                ) as ble_client:
+                    print(f"[info] Connected to BLE companion")
+                    self._debug("BLE connection established")
 
-                await ble_client.start_notify(self.config.ble_tx_uuid, on_ble_notification)
+                    # Some BlueZ stacks/devices need a small settling delay after connect.
+                    await asyncio.sleep(_BLE_SETTLE_DELAY)
 
-                tcp_rx_buffer = bytearray()
+                    ble_rx_queue = asyncio.Queue()
 
-                # Background task to relay BLE RX -> TCP
-                async def ble_to_tcp_relay():
-                    while not self._shutdown_event.is_set():
+                    def on_ble_notification(sender, data):
+                        """Non-async BLE callback; queue for async handler."""
+                        if self._shutdown_event.is_set():
+                            return
                         try:
-                            ble_payload = await asyncio.wait_for(ble_rx_queue.get(), timeout=0.1)
-                            self._debug_log_io("BLE->", ble_payload)
-                            self._debug_log_ble_payload(ble_payload)
-                            self._send_tcp_payload(writer, ble_payload)
-                            await writer.drain()
-                        except asyncio.TimeoutError:
-                            pass
-                        except Exception as e:
-                            print(f"[error] BLE->TCP relay error: {e}")
+                            ble_rx_queue.put_nowait(data)
+                        except asyncio.QueueFull:
+                            print("[warn] BLE RX queue full, dropping notification")
+
+                    notify_started = False
+                    last_notify_error: Exception | None = None
+                    for notify_attempt in range(1, _BLE_NOTIFY_RETRIES + 1):
+                        try:
+                            await ble_client.start_notify(self.config.ble_tx_uuid, on_ble_notification)
+                            notify_started = True
                             break
+                        except Exception as exc:
+                            last_notify_error = exc
+                            if notify_attempt < _BLE_NOTIFY_RETRIES:
+                                print(
+                                    f"[warn] BLE start_notify failed ({notify_attempt}/{_BLE_NOTIFY_RETRIES}): {exc}; retrying in 0.5s"
+                                )
+                                await asyncio.sleep(0.5)
+                            else:
+                                raise
 
-                relay_task = asyncio.create_task(ble_to_tcp_relay())
+                    if not notify_started:
+                        raise RuntimeError(f"BLE start_notify failed: {last_notify_error}")
 
-                try:
-                    while not self._shutdown_event.is_set():
-                        chunk = await reader.read(512)
-                        if not chunk:
-                            self._debug("TCP read returned empty, client closed connection")
-                            break
+                    tcp_rx_buffer = bytearray()
 
-                        self._debug_log_io("TCP<-", chunk)
-                        payloads = self._decode_tcp_payloads(tcp_rx_buffer, chunk)
+                    # Background task to relay BLE RX -> TCP
+                    async def ble_to_tcp_relay():
+                        while not self._shutdown_event.is_set():
+                            try:
+                                ble_payload = await asyncio.wait_for(ble_rx_queue.get(), timeout=0.1)
+                                self._debug_log_io("BLE->", ble_payload)
+                                self._debug_log_ble_payload(ble_payload)
+                                self._send_tcp_payload(writer, ble_payload)
+                                await writer.drain()
+                            except asyncio.TimeoutError:
+                                pass
+                            except Exception as e:
+                                print(f"[error] BLE->TCP relay error: {e}")
+                                break
 
-                        for payload in payloads:
-                            self._debug_log_io("TCP payload", payload)
-                            self._debug_log_tcp_payload(payload)
+                    relay_task = asyncio.create_task(ble_to_tcp_relay())
 
-                            if not payload:
-                                continue
-
-                            command_code = payload[0]
-                            command_name = COMMAND_NAMES.get(command_code, f"0x{command_code:02x}")
-                            self._debug(f"app command: {command_name} ({command_code:#04x})")
-
-                            # Forward to BLE
-                            self._debug_log_io("BLE<-", payload)
-                            await ble_client.write_gatt_char(self.config.ble_rx_uuid, payload, response=False)
-                            self._debug(f"Sent to BLE RX: {payload.hex()}")
-
-                finally:
-                    relay_task.cancel()
                     try:
-                        await relay_task
-                    except asyncio.CancelledError:
-                        pass
-                    await ble_client.stop_notify(self.config.ble_tx_uuid)
-                    self._debug("BLE notifications stopped")
+                        while not self._shutdown_event.is_set():
+                            chunk = await reader.read(512)
+                            if not chunk:
+                                self._debug("TCP read returned empty, client closed connection")
+                                break
 
-        except Exception as e:
-            print(f"[error] BLE bridge error: {e}")
-            if self.config.debug_io:
-                import traceback
-                traceback.print_exc()
+                            self._debug_log_io("TCP<-", chunk)
+                            payloads = self._decode_tcp_payloads(tcp_rx_buffer, chunk)
+
+                            for payload in payloads:
+                                self._debug_log_io("TCP payload", payload)
+                                self._debug_log_tcp_payload(payload)
+
+                                if not payload:
+                                    continue
+
+                                command_code = payload[0]
+                                command_name = COMMAND_NAMES.get(command_code, f"0x{command_code:02x}")
+                                self._debug(f"app command: {command_name} ({command_code:#04x})")
+
+                                # Forward to BLE
+                                self._debug_log_io("BLE<-", payload)
+                                await ble_client.write_gatt_char(self.config.ble_rx_uuid, payload, response=False)
+                                self._debug(f"Sent to BLE RX: {payload.hex()}")
+
+                    finally:
+                        relay_task.cancel()
+                        try:
+                            await relay_task
+                        except asyncio.CancelledError:
+                            pass
+                        if notify_started:
+                            try:
+                                await ble_client.stop_notify(self.config.ble_tx_uuid)
+                            except Exception:
+                                pass
+                            self._debug("BLE notifications stopped")
+
+                    return
+
+            except Exception as e:
+                if self._shutdown_event.is_set():
+                    return
+
+                if ble_attempt < max_ble_attempts:
+                    print(
+                        f"[warn] BLE bridge setup failed ({ble_attempt}/{max_ble_attempts}): {e}; retrying in 1s"
+                    )
+                    await asyncio.sleep(1.0)
+                    continue
+
+                print(f"[error] BLE bridge error: {e}")
+                print("[hint] Try pairing/trusting the BLE device first with bluetoothctl, then retry")
+                if self.config.debug_io:
+                    import traceback
+                    traceback.print_exc()
+                return
 
 def parse_args() -> RelayConfig:
     parser = argparse.ArgumentParser(description="MeshCore TCP to BLE GATT relay")
@@ -339,6 +410,12 @@ def parse_args() -> RelayConfig:
     parser.add_argument("--ble-address", default="", help="BLE MAC address of the companion (optional in probe mode)")
     parser.add_argument("--ble-rx-uuid", default=MESHCORE_RX_UUID, help="RX characteristic UUID (app -> device)")
     parser.add_argument("--ble-tx-uuid", default=MESHCORE_TX_UUID, help="TX characteristic UUID (device -> app)")
+    parser.add_argument(
+        "--ble-scan-timeout",
+        type=float,
+        default=10.0,
+        help="Seconds to scan for BLE device before attempting direct connect (default: 10.0)",
+    )
     parser.add_argument(
         "--debug-io",
         action=argparse.BooleanOptionalAction,
@@ -353,6 +430,7 @@ def parse_args() -> RelayConfig:
         ble_address=args.ble_address,
         ble_rx_uuid=args.ble_rx_uuid,
         ble_tx_uuid=args.ble_tx_uuid,
+        ble_scan_timeout=max(1.0, args.ble_scan_timeout),
         debug_io=args.debug_io,
     )
 
