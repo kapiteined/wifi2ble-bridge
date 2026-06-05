@@ -34,6 +34,27 @@ Optie B (via argument):
 
 Standaard luistert de relay op TCP poort `5000`.
 
+## Installeren onder Linux
+
+Gebruik de installer om alles onder een prefix te plaatsen (standaard `/usr/local`):
+
+```sh
+./install.sh
+```
+
+Of met een eigen prefix:
+
+```sh
+./install.sh --prefix /opt/mesh-emu
+```
+
+Na installatie zijn dit de commando's:
+
+- `/usr/local/bin/mesh-emu-scan`
+- `/usr/local/bin/mesh-emu-relay`
+
+Deze launchers gebruiken een venv onder `/usr/local/lib/mesh-emu/.venv`.
+
 ## Handige opties
 
 Voor extra logging:
@@ -48,6 +69,7 @@ Voor afsluiten: `Ctrl+C` stopt listener, actieve TCP sessie(s) en BLE sessie.
 
 - [python/](python/) Python scripts en requirements
 - [src/](src/) C build artefacten / binary (`mesh-emu`)
+- [install.sh](install.sh) Linux installer (prefix-based)
 - [start.sh](start.sh) legacy relay wrapper (functioneel, maar [run_relay.sh](run_relay.sh) is de voorkeursroute)
 
 ## Privacy / local config
