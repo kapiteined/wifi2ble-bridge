@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2025-2026 Liam Cottle
+# Portions generated with AI assistance
+# 
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """Scan for BLE devices and display their details."""
 
 import asyncio
