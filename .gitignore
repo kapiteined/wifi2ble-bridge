@@ -31,3 +31,6 @@ Makefile.in
 *~
 *.swp
 .DS_Store
+debug.log
+*.log
+.venv/
