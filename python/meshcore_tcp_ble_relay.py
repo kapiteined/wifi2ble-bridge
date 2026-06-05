@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (c) 2025-2026 Liam Cottle
+# Copyright (c) 2025-2026 Ed Kapitein
 # Portions generated with AI assistance
 # 
 # This program is free software: you can redistribute it and/or modify
@@ -23,19 +23,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import signal
 import sys
 from dataclasses import dataclass
 from typing import Optional
 
-from bleak import BleakClient, BleakScanner
+from bleak import BleakClient
 
-MESHCORE_SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 MESHCORE_RX_UUID = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"  # app -> firmware
 MESHCORE_TX_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"  # firmware -> app
 TCP_FRAME_APP_TO_DEVICE = 0x3C  # '<'
 TCP_FRAME_DEVICE_TO_APP = 0x3E  # '>'
-PACKET_DEVICE_INFO = 0x0D
 
 COMMAND_NAMES = {
     0x01: "AppStart",
@@ -72,13 +71,7 @@ class RelayConfig:
     ble_address: str
     ble_rx_uuid: str
     ble_tx_uuid: str
-    ble_service_uuid: str
-    startup_check: bool
     debug_io: bool
-    tcp_meshcore_framing: bool
-    session_bootstrap: bool
-    tcp_response_mode: str
-    normalize_device_info: bool
 
 
 class MeshcoreTcpBleRelay:
@@ -87,10 +80,17 @@ class MeshcoreTcpBleRelay:
         self._server: Optional[asyncio.AbstractServer] = None
         self._shutdown_event = asyncio.Event()
         self._active_client_lock = asyncio.Lock()
+        self._client_writers: set[asyncio.StreamWriter] = set()
+        self._client_tasks: set[asyncio.Task[None]] = set()
+        self._shutdown_lock = asyncio.Lock()
+
+    def _debug(self, message: str) -> None:
+        if not self.config.debug_io:
+            return
+        print(f"[debug] {message}")
 
     async def run(self) -> None:
-        if self.config.startup_check:
-            await self._startup_check()
+        self._debug("Relay starting")
 
         self._server = await asyncio.start_server(
             self._handle_client,
@@ -105,12 +105,37 @@ class MeshcoreTcpBleRelay:
 
         async with self._server:
             await self._shutdown_event.wait()
+        self._debug("Relay stopped")
 
     async def shutdown(self) -> None:
-        self._shutdown_event.set()
-        if self._server is not None:
-            self._server.close()
-            await self._server.wait_closed()
+        async with self._shutdown_lock:
+            if self._shutdown_event.is_set():
+                return
+
+            self._debug("Shutdown requested")
+            self._shutdown_event.set()
+            if self._server is not None:
+                self._server.close()
+                await self._server.wait_closed()
+
+            # Cancel any still-running client tasks to break out of read/write awaits.
+            client_tasks = [task for task in self._client_tasks if not task.done()]
+            for task in client_tasks:
+                task.cancel()
+            if client_tasks:
+                await asyncio.gather(*client_tasks, return_exceptions=True)
+
+            # Force-close any remaining client sockets.
+            client_writers = list(self._client_writers)
+            for writer in client_writers:
+                writer.close()
+            for writer in client_writers:
+                try:
+                    await asyncio.wait_for(writer.wait_closed(), timeout=1.0)
+                except Exception:
+                    pass
+
+            self._debug("Shutdown complete")
 
     async def _handle_client(
         self,
@@ -126,38 +151,27 @@ class MeshcoreTcpBleRelay:
             return
 
         async with self._active_client_lock:
+            current_task = asyncio.current_task()
+            if current_task is not None:
+                self._client_tasks.add(current_task)
+            self._client_writers.add(writer)
+            self._debug(f"Starting client session for {peer}")
             print(f"[info] TCP client connected: {peer}")
             try:
                 await self._run_client_session(reader, writer)
             except Exception as exc:  # broad by design for long-running relay
                 print(f"[error] session failure: {exc}")
             finally:
+                if current_task is not None:
+                    self._client_tasks.discard(current_task)
+                self._client_writers.discard(writer)
                 writer.close()
-                await writer.wait_closed()
+                try:
+                    await asyncio.wait_for(writer.wait_closed(), timeout=1.0)
+                except Exception:
+                    pass
                 print(f"[info] TCP client disconnected: {peer}")
-
-    async def _startup_check(self) -> None:
-        print("[info] Running startup BLE check")
-
-        max_retries = 3
-        last_error = None
-
-        for attempt in range(1, max_retries + 1):
-            try:
-                target = await self._resolve_ble_target()
-                async with BleakClient(target, timeout=10.0) as ble:
-                    print(f"[info] BLE connected for startup check: {self.config.ble_address}")
-                    await self._validate_required_characteristics(ble)
-
-                    print("[info] BLE characteristics verified; no startup commands sent")
-                return  # success
-            except Exception as exc:
-                last_error = exc
-                if attempt < max_retries:
-                    print(f"[warn] BLE check attempt {attempt} failed: {exc}, retrying in 2s...")
-                    await asyncio.sleep(2)
-                else:
-                    print(f"[warn] startup BLE check failed after {max_retries} attempts: {last_error}")
+                self._debug(f"Client session closed for {peer}")
 
     def _debug_log_io(self, direction: str, data: bytes) -> None:
         if not self.config.debug_io:
@@ -198,48 +212,11 @@ class MeshcoreTcpBleRelay:
         return bytes((TCP_FRAME_DEVICE_TO_APP, len(payload) & 0xFF, (len(payload) >> 8) & 0xFF)) + payload
 
     def _send_tcp_payload(self, writer: asyncio.StreamWriter, payload: bytes) -> None:
-        framed_payload = self._frame_tcp_payload(payload) if self.config.tcp_meshcore_framing else payload
+        framed_payload = self._frame_tcp_payload(payload)
         self._debug_log_io("TCP->", framed_payload)
         writer.write(framed_payload)
 
-    def _encode_tcp_payload(self, payload: bytes) -> bytes:
-        if not self.config.tcp_meshcore_framing:
-            return payload
-
-        return self._frame_tcp_payload(payload)
-
-    def _normalize_ble_packet_for_tcp(self, payload: bytes) -> bytes:
-        if not self.config.normalize_device_info:
-            return payload
-
-        if len(payload) < 2 or payload[0] != PACKET_DEVICE_INFO:
-            return payload
-
-        # Legacy app compatibility:
-        # - build date may be parsed as "dd MMM yyyy" (spaces, not dashes)
-        # - compact model/version to avoid large null-padded tails.
-        out = bytearray(payload)
-
-        # DeviceInfo layout starts with:
-        # [0]=0x0D, [1]=fw_ver, [2:8]=reserved, [8:20]=build date c-string area
-        for idx in range(8, min(20, len(out))):
-            if out[idx] == 0x2D:  # '-'
-                out[idx] = 0x20  # ' '
-
-        # For fw >= 3, firmware often returns model/version as fixed-width
-        # null-padded fields. Convert to compact tail text.
-        if len(out) >= 80:
-            model = bytes(out[20:60]).split(b"\x00", 1)[0].decode("utf-8", errors="ignore").strip()
-            version = bytes(out[60:80]).split(b"\x00", 1)[0].decode("utf-8", errors="ignore").strip()
-            tail = f"{model} {version}".strip().encode("utf-8")
-            out = bytearray(out[:20] + tail)
-
-        return bytes(out)
-
     def _decode_tcp_payloads(self, rx_buffer: bytearray, chunk: bytes) -> list[bytes]:
-        if not self.config.tcp_meshcore_framing:
-            return [chunk]
-
         rx_buffer.extend(chunk)
         payloads: list[bytes] = []
 
@@ -263,23 +240,6 @@ class MeshcoreTcpBleRelay:
 
         return payloads
 
-    def _format_device_info(self, packet: bytes) -> str:
-        if len(packet) < 2:
-            return "invalid packet"
-
-        fw_ver = packet[1]
-        if fw_ver >= 3 and len(packet) >= 80:
-            max_contacts = packet[2] * 2
-            max_channels = packet[3]
-            model = packet[20:60].decode("utf-8", errors="ignore").rstrip("\x00").strip()
-            version = packet[60:80].decode("utf-8", errors="ignore").rstrip("\x00").strip()
-            return (
-                f"fw_ver={fw_ver}, max_contacts={max_contacts}, "
-                f"max_channels={max_channels}, model='{model}', version='{version}'"
-            )
-
-        return f"fw_ver={fw_ver}, len={len(packet)}"
-
     async def _run_client_session(
         self,
         reader: asyncio.StreamReader,
@@ -292,13 +252,19 @@ class MeshcoreTcpBleRelay:
 
         print(f"[info] Connecting to BLE device: {self.config.ble_address}")
         try:
-            async with BleakClient(self.config.ble_address) as ble_client:
+            def _on_ble_disconnected(_client: BleakClient) -> None:
+                self._debug("BLE connection lost")
+
+            async with BleakClient(self.config.ble_address, disconnected_callback=_on_ble_disconnected) as ble_client:
                 print(f"[info] Connected to BLE companion")
+                self._debug("BLE connection established")
 
                 ble_rx_queue = asyncio.Queue()
 
                 def on_ble_notification(sender, data):
                     """Non-async BLE callback; queue for async handler."""
+                    if self._shutdown_event.is_set():
+                        return
                     try:
                         ble_rx_queue.put_nowait(data)
                     except asyncio.QueueFull:
@@ -307,11 +273,10 @@ class MeshcoreTcpBleRelay:
                 await ble_client.start_notify(self.config.ble_tx_uuid, on_ble_notification)
 
                 tcp_rx_buffer = bytearray()
-                ble_send_pending = False
 
                 # Background task to relay BLE RX -> TCP
                 async def ble_to_tcp_relay():
-                    while True:
+                    while not self._shutdown_event.is_set():
                         try:
                             ble_payload = await asyncio.wait_for(ble_rx_queue.get(), timeout=0.1)
                             self._debug_log_io("BLE->", ble_payload)
@@ -327,10 +292,10 @@ class MeshcoreTcpBleRelay:
                 relay_task = asyncio.create_task(ble_to_tcp_relay())
 
                 try:
-                    while True:
+                    while not self._shutdown_event.is_set():
                         chunk = await reader.read(512)
                         if not chunk:
-                            print("[debug] TCP read returned empty, client closed connection")
+                            self._debug("TCP read returned empty, client closed connection")
                             break
 
                         self._debug_log_io("TCP<-", chunk)
@@ -345,12 +310,12 @@ class MeshcoreTcpBleRelay:
 
                             command_code = payload[0]
                             command_name = COMMAND_NAMES.get(command_code, f"0x{command_code:02x}")
-                            print(f"[info] app command: {command_name} ({command_code:#04x})")
+                            self._debug(f"app command: {command_name} ({command_code:#04x})")
 
                             # Forward to BLE
                             self._debug_log_io("BLE<-", payload)
                             await ble_client.write_gatt_char(self.config.ble_rx_uuid, payload, response=False)
-                            print(f"[debug] Sent to BLE RX: {payload.hex()}")
+                            self._debug(f"Sent to BLE RX: {payload.hex()}")
 
                 finally:
                     relay_task.cancel()
@@ -359,79 +324,26 @@ class MeshcoreTcpBleRelay:
                     except asyncio.CancelledError:
                         pass
                     await ble_client.stop_notify(self.config.ble_tx_uuid)
+                    self._debug("BLE notifications stopped")
 
         except Exception as e:
             print(f"[error] BLE bridge error: {e}")
-            import traceback
-            traceback.print_exc()
-
-    async def _resolve_ble_target(self):
-        devices = await BleakScanner.discover(timeout=6.0, return_adv=True)
-        for device, _ in devices.values():
-            if device.address.upper() == self.config.ble_address.upper():
-                return device
-        raise RuntimeError(
-            f"BLE device not found in scan: {self.config.ble_address} "
-            "(ensure it is advertising and in range)"
-        )
-
-    async def _validate_required_characteristics(self, ble: BleakClient) -> None:
-        services = ble.services
-        service = services.get_service(self.config.ble_service_uuid)
-        if service is None:
-            raise RuntimeError(f"MeshCore service not found: {self.config.ble_service_uuid}")
-
-        rx_char = services.get_characteristic(self.config.ble_rx_uuid)
-        tx_char = services.get_characteristic(self.config.ble_tx_uuid)
-        if rx_char is None:
-            raise RuntimeError(f"RX characteristic not found: {self.config.ble_rx_uuid}")
-        if tx_char is None:
-            raise RuntimeError(f"TX characteristic not found: {self.config.ble_tx_uuid}")
-
+            if self.config.debug_io:
+                import traceback
+                traceback.print_exc()
 
 def parse_args() -> RelayConfig:
     parser = argparse.ArgumentParser(description="MeshCore TCP to BLE GATT relay")
     parser.add_argument("--tcp-host", default="0.0.0.0", help="TCP bind host (default: 0.0.0.0)")
     parser.add_argument("--tcp-port", type=int, default=5000, help="TCP bind port (default: 5000)")
     parser.add_argument("--ble-address", default="", help="BLE MAC address of the companion (optional in probe mode)")
-    parser.add_argument("--ble-service-uuid", default=MESHCORE_SERVICE_UUID, help="MeshCore BLE service UUID")
     parser.add_argument("--ble-rx-uuid", default=MESHCORE_RX_UUID, help="RX characteristic UUID (app -> device)")
     parser.add_argument("--ble-tx-uuid", default=MESHCORE_TX_UUID, help="TX characteristic UUID (device -> app)")
-    parser.add_argument(
-        "--startup-check",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Run BLE SELF_INFO/DEVICE_INFO check at startup (default: disabled)",
-    )
     parser.add_argument(
         "--debug-io",
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Print TCP/BLE payloads to stderr (default: disabled)",
-    )
-    parser.add_argument(
-        "--tcp-meshcore-framing",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Decode/encode MeshCore TCP framing (default: enabled)",
-    )
-    parser.add_argument(
-        "--session-bootstrap",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Send APP_START on BLE connect for each TCP session (default: enabled)",
-    )
-    parser.add_argument(
-        "--tcp-response-mode",
-        choices=("framed", "raw", "both"),
-        default="framed",
-        help="Encoding for BLE->TCP responses (default: framed)",
-    )
-    parser.add_argument(
-        "--normalize-device-info",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Normalize DEVICE_INFO payload for client compatibility (default: disabled)",
     )
     args = parser.parse_args()
 
@@ -441,21 +353,21 @@ def parse_args() -> RelayConfig:
         ble_address=args.ble_address,
         ble_rx_uuid=args.ble_rx_uuid,
         ble_tx_uuid=args.ble_tx_uuid,
-        ble_service_uuid=args.ble_service_uuid,
-        startup_check=args.startup_check,
         debug_io=args.debug_io,
-        tcp_meshcore_framing=args.tcp_meshcore_framing,
-        session_bootstrap=args.session_bootstrap,
-        tcp_response_mode=args.tcp_response_mode,
-        normalize_device_info=args.normalize_device_info,
     )
 
 
 async def _main_async() -> int:
     relay = MeshcoreTcpBleRelay(parse_args())
     loop = asyncio.get_running_loop()
+    shutdown_requested = False
 
     def _request_shutdown() -> None:
+        nonlocal shutdown_requested
+        if shutdown_requested:
+            print("[warn] Second interrupt received, forcing exit")
+            os._exit(130)
+        shutdown_requested = True
         asyncio.create_task(relay.shutdown())
 
     for sig in (signal.SIGINT, signal.SIGTERM):

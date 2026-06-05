@@ -5,10 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY_DIR="$ROOT_DIR/python"
 VENV_DIR="$PY_DIR/.venv"
 REQUIREMENTS_FILE="$PY_DIR/requirements.txt"
-SCAN_FILE="$PY_DIR/scan_ble_devices.py"
+APP_FILE="$PY_DIR/ble_scan.py"
 
-if [[ ! -f "$SCAN_FILE" ]]; then
-  echo "[error] Scanner script not found: $SCAN_FILE" >&2
+if [[ ! -f "$APP_FILE" ]]; then
+  echo "[error] Scanner script not found: $APP_FILE" >&2
   exit 1
 fi
 
@@ -29,4 +29,4 @@ python -m pip install --upgrade pip >/dev/null
 python -m pip install -r "$REQUIREMENTS_FILE"
 
 echo "[info] Starting BLE scan"
-exec python "$SCAN_FILE" "$@"
+exec python "$APP_FILE" "$@"

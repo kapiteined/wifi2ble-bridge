@@ -1,49 +1,56 @@
 # mesh-emu
 
-`mesh-emu` is a C project for a MeshCore companion relay that runs on one Raspberry Pi: it accepts a TCP connection and forwards the data to a Bluetooth companion endpoint.
+MeshCore TCP ↔ BLE relay tooling.
 
-## Intended Flow
+Deze repository bevat:
 
-- Android MeshCore client connects to the Pi over TCP on port `5000` by default
-- the Pi forwards received data to the companion over Bluetooth
-- Bluetooth is currently configured as an RFCOMM client endpoint
+- een Python relay van TCP naar BLE: [python/meshcore_tcp_ble_relay.py](python/meshcore_tcp_ble_relay.py)
+- een BLE scanner: [python/ble_scan.py](python/ble_scan.py)
+- wrappers die automatisch een venv gebruiken:
+	- [run_scan.sh](run_scan.sh)
+	- [run_relay.sh](run_relay.sh)
 
-## Status
+## Snel starten
 
-This repository currently contains a minimal Autotools/Automake skeleton and starter modules for the app, bridge, and logging layers.
-
-## Layout
-
-- `src/` - program sources
-- `include/mesh_emu/` - public project headers
-
-## Build
+### 1) BLE devices scannen
 
 ```sh
-autoreconf -fi
-./configure
-make
+./run_scan.sh
 ```
 
-## Run
+### 2) Relay starten
+
+Optie A (via omgevingsvariabele):
 
 ```sh
-./src/mesh-emu
+BLE_ADDRESS="AA:BB:CC:DD:EE:FF" ./run_relay.sh
 ```
 
-## Companion Emulator
-
-If you only want to emulate the companion side for the Android app, run the TCP emulator:
+Optie B (via argument):
 
 ```sh
-cd python
-python companion_emulator.py --host 0.0.0.0 --port 5000 --debug-io
+./run_relay.sh --ble-address AA:BB:CC:DD:EE:FF
 ```
 
-It accepts framed MeshCore TCP traffic and returns canned `DeviceInfo` / `SelfInfo` responses.
+Standaard luistert de relay op TCP poort `5000`.
 
-## Next Steps
+## Handige opties
 
-- replace the RFCOMM placeholder address with your companion MAC address
-- add framing if the companion protocol needs packet boundaries
-- make the Bluetooth endpoint configurable from the command line
+Voor extra logging:
+
+```sh
+./run_relay.sh --ble-address AA:BB:CC:DD:EE:FF --debug-io
+```
+
+Voor afsluiten: `Ctrl+C` stopt listener, actieve TCP sessie(s) en BLE sessie.
+
+## Projectstructuur
+
+- [python/](python/) Python scripts en requirements
+- [src/](src/) C build artefacten / binary (`mesh-emu`)
+- [start.sh](start.sh) legacy relay wrapper (functioneel, maar [run_relay.sh](run_relay.sh) is de voorkeursroute)
+
+## Privacy / local config
+
+Deze README bevat bewust geen lokale hostnames, companion namen of specifieke hardware-adressen.
+Gebruik placeholders zoals `AA:BB:CC:DD:EE:FF` en vul lokaal je eigen waarden in.

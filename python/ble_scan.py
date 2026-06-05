@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (c) 2025-2026 Liam Cottle
+# Copyright (c) 2025-2026 Ed Kapitein
 # Portions generated with AI assistance
 # 
 # This program is free software: you can redistribute it and/or modify
