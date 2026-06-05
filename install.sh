@@ -78,9 +78,17 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -d "\$VENV_DIR" ]]; then
+if [[ ! -f "\$VENV_DIR/bin/activate" ]]; then
+  if [[ -d "\$VENV_DIR" ]]; then
+    echo "[warn] Incomplete virtual environment found in \$VENV_DIR, recreating"
+    rm -rf "\$VENV_DIR"
+  fi
   echo "[info] Creating virtual environment in \$VENV_DIR"
-  python3 -m venv "\$VENV_DIR"
+  if ! python3 -m venv "\$VENV_DIR"; then
+    echo "[error] Failed to create virtual environment." >&2
+    echo "       Install python3-venv (or python3.11-venv) and retry." >&2
+    exit 1
+  fi
 fi
 
 # shellcheck disable=SC1091
@@ -105,9 +113,17 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -d "\$VENV_DIR" ]]; then
+if [[ ! -f "\$VENV_DIR/bin/activate" ]]; then
+  if [[ -d "\$VENV_DIR" ]]; then
+    echo "[warn] Incomplete virtual environment found in \$VENV_DIR, recreating"
+    rm -rf "\$VENV_DIR"
+  fi
   echo "[info] Creating virtual environment in \$VENV_DIR"
-  python3 -m venv "\$VENV_DIR"
+  if ! python3 -m venv "\$VENV_DIR"; then
+    echo "[error] Failed to create virtual environment." >&2
+    echo "       Install python3-venv (or python3.11-venv) and retry." >&2
+    exit 1
+  fi
 fi
 
 # shellcheck disable=SC1091

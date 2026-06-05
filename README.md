@@ -20,6 +20,25 @@ Deze repository bevat:
 
 ### 2) Relay starten
 
+**Belangrijk (eenmalig op de Raspberry Pi): eerst pairen/trusten met `bluetoothctl`.**
+
+Voorbeeld:
+
+```sh
+bluetoothctl
+power on
+agent on
+default-agent
+pair AA:BB:CC:DD:EE:FF
+trust AA:BB:CC:DD:EE:FF
+disconnect AA:BB:CC:DD:EE:FF
+quit
+```
+
+Let op:
+- De companion werkt niet als `bluetoothctl` nog actief connected is met de companion.
+- Zorg dat je na pair/trust expliciet `disconnect` doet in `bluetoothctl` voordat je de relay start.
+
 Optie A (via omgevingsvariabele):
 
 ```sh
