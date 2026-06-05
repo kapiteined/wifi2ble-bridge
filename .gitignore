@@ -1,36 +1,42 @@
-# Autotools / Automake
-Makefile
-Makefile.in
-/aclocal.m4
-/autom4te.cache/
-/compile
-/config.guess
-/config.h
-/config.h.in
-/config.log
-/config.status
-/config.sub
-/configure
-/depcomp
-/install-sh
-/missing
-/stamp-h1
+# Autotools / Automake (not used - Python-only project)
+Makefile*
+configure*
+aclocal.m4
+autom4te.cache/
+*.in
+compile
+config.*
+depcomp
+install-sh
+missing
+stamp-h1
+.deps/
+.libs/
 
 # Build outputs
-/src/.deps/
-/src/.libs/
-/src/*.o
-/src/mesh-emu
+*.o
 *.lo
 *.la
 *.a
 *.so
 *.so.*
+mesh-emu
+
+# Python
+debug.log
+*.log
+.venv/
+python/.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
 
 # Editor / OS
 *~
 *.swp
 .DS_Store
-debug.log
-*.log
-.venv/
+.idea/
+.vscode/
