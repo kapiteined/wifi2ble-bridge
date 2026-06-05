@@ -51,6 +51,9 @@ DEVICE_INFO_RAW = bytes.fromhex(
 SELF_INFO_RAW = bytes.fromhex(
     "05010216ed196399d243b7d6bc3a42a98ec566498ab9770b40d582e64fc12918f673fb884b461903029e420000001501f2440d0024f400000705f09f87b3f09f87b1204564204b6170697465696e"
 )
+BATTERY_VOLTAGE_RAW = bytes.fromhex(
+    "0c5f101800000064000000"
+)
 
 
 @dataclass
@@ -99,7 +102,7 @@ class CompanionEmulator:
         return bytes((RESP_CURREN_TIME,)) + epoch_secs.to_bytes(4, "little", signed=False)
 
     def _build_battery_voltage(self) -> bytes:
-        return bytes((RESP_BATTERY_VOLTAGE,)) + (4000).to_bytes(2, "little", signed=False)
+        return BATTERY_VOLTAGE_RAW
 
     def _build_no_more_messages(self) -> bytes:
         return bytes((RESP_NO_MORE_MESSAGES,))
