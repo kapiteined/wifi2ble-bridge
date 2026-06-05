@@ -87,7 +87,6 @@ Voor afsluiten: `Ctrl+C` stopt listener, actieve TCP sessie(s) en BLE sessie.
 ## Projectstructuur
 
 - [python/](python/) Python scripts en requirements
-- [src/](src/) C build artefacten / binary (`mesh-emu`)
 - [install.sh](install.sh) Linux installer (prefix-based)
 
 ## Privacy / local config
