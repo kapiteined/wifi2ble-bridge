@@ -28,20 +28,6 @@ TCP_FRAME_APP_TO_DEVICE = 0x3C  # '<'
 TCP_FRAME_DEVICE_TO_APP = 0x3E  # '>'
 PACKET_DEVICE_INFO = 0x0D
 
-RESP_SELF_INFO_RAW = bytes.fromhex(
-    "05010216ed196399d243b7d6bc3a42a98ec566498ab9770b40d582e64fc12918f673fb884b461903029e420000001501f2440d0024f400000705f09f87b3f09f87b1204564204b6170697465696e"
-)
-RESP_DEVICE_INFO_RAW = bytes.fromhex(
-    "0d0baf280000000031392d4170722d323032360048656c7465632054313134000000000000000000000000000000000000000000000000000000000076312e31352e302d6465653365323600000000000001"
-)
-RESP_BATTERY_VOLTAGE_RAW = bytes.fromhex(
-    "0c5f101800000064000000"
-)
-RESP_CONTACTS_START_RAW = bytes((0x02, 0x00, 0x00, 0x00, 0x00))
-RESP_END_OF_CONTACTS_RAW = bytes((0x04, 0x00, 0x00, 0x00, 0x00))
-RESP_NO_MORE_MESSAGES_RAW = bytes((0x0A,))
-RESP_OK_RAW = bytes((0x00,))
-
 COMMAND_NAMES = {
     0x01: "AppStart",
     0x04: "GetContacts",
@@ -206,29 +192,6 @@ class MeshcoreTcpBleRelay:
         framed_payload = self._frame_tcp_payload(payload) if self.config.tcp_meshcore_framing else payload
         self._debug_log_io("TCP->", framed_payload)
         writer.write(framed_payload)
-
-    def _build_curr_time_payload(self) -> bytes:
-        import time
-
-        epoch_secs = int(time.time())
-        return bytes((0x09,)) + epoch_secs.to_bytes(4, "little", signed=False)
-
-    def _build_probe_response(self, command: int, payload: bytes) -> list[bytes]:
-        if command == 0x01:
-            return [RESP_SELF_INFO_RAW]
-        if command == 0x16:
-            return [RESP_DEVICE_INFO_RAW]
-        if command == 0x14:
-            return [RESP_BATTERY_VOLTAGE_RAW]
-        if command == 0x04:
-            return [RESP_CONTACTS_START_RAW, RESP_END_OF_CONTACTS_RAW]
-        if command == 0x05:
-            return [self._build_curr_time_payload()]
-        if command == 0x06:
-            return [RESP_OK_RAW]
-        if command == 0x0A:
-            return [RESP_NO_MORE_MESSAGES_RAW]
-        return [RESP_OK_RAW]
 
     def _encode_tcp_payload(self, payload: bytes) -> bytes:
         if not self.config.tcp_meshcore_framing:
