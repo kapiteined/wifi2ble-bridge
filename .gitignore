@@ -1,0 +1,33 @@
+# Autotools / Automake
+Makefile
+Makefile.in
+/aclocal.m4
+/autom4te.cache/
+/compile
+/config.guess
+/config.h
+/config.h.in
+/config.log
+/config.status
+/config.sub
+/configure
+/depcomp
+/install-sh
+/missing
+/stamp-h1
+
+# Build outputs
+/src/.deps/
+/src/.libs/
+/src/*.o
+/src/mesh-emu
+*.lo
+*.la
+*.a
+*.so
+*.so.*
+
+# Editor / OS
+*~
+*.swp
+.DS_Store
