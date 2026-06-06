@@ -66,8 +66,8 @@ sudo ./install.sh --prefix /opt/wifi2ble-bridge
 
 Na installatie zijn dit de commando's:
 
-- `/usr/local/bin/wifi2ble-bridge-scan`
-- `/usr/local/bin/wifi2ble-bridge-relay`
+- `/usr/local/bin/wifi2ble-bridge-scan.sh`
+- `/usr/local/bin/wifi2ble-bridge-relay.sh`
 
 Deze launchers gebruiken een venv onder `/usr/local/lib/wifi2ble-bridge/.venv`.
 

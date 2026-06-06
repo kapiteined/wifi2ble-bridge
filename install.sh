@@ -24,8 +24,8 @@ Defaults:
 
 Installed files:
   BIN: \
-    $PREFIX/bin/wifi2ble-bridge-relay\
-    $PREFIX/bin/wifi2ble-bridge-scan
+    $PREFIX/bin/wifi2ble-bridge-relay.sh\
+    $PREFIX/bin/wifi2ble-bridge-scan.sh
   LIB: \
     $PREFIX/lib/wifi2ble-bridge/python/*
   SYSTEMD: \
@@ -172,8 +172,8 @@ exec python "\$SCRIPT_FILE" "\$@"
 EOF
 
 echo "[info] Installing launchers"
-install -m 0755 "$TMP_SCAN" "$BIN_DIR/wifi2ble-bridge-scan"
-install -m 0755 "$TMP_RELAY" "$BIN_DIR/wifi2ble-bridge-relay"
+install -m 0755 "$TMP_SCAN" "$BIN_DIR/wifi2ble-bridge-scan.sh"
+install -m 0755 "$TMP_RELAY" "$BIN_DIR/wifi2ble-bridge-relay.sh"
 
 SYSTEMD_DIR="/etc/systemd/system"
 SRC_SYSTEMD_DIR="$ROOT_DIR/systemd"
@@ -201,5 +201,5 @@ fi
 
 echo "[ok] Installed"
 echo "[ok] Commands:"
-echo "      $BIN_DIR/wifi2ble-bridge-scan"
-echo "      $BIN_DIR/wifi2ble-bridge-relay"
+echo "      $BIN_DIR/wifi2ble-bridge-scan.sh"
+echo "      $BIN_DIR/wifi2ble-bridge-relay.sh"
