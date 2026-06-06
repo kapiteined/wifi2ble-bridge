@@ -28,6 +28,10 @@ Installed files:
     $PREFIX/bin/wifi2ble-bridge-scan
   LIB: \
     $PREFIX/lib/wifi2ble-bridge/python/*
+  SYSTEMD: \
+    /etc/systemd/system/wifi2ble-bridge-relay.service
+  ENV (only if not already present): \
+    /etc/default/wifi2ble-bridge-relay
 EOF
       exit 0
       ;;
@@ -41,6 +45,11 @@ done
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_PY_DIR="$ROOT_DIR/python"
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "[error] This script must be run as root (use sudo)." >&2
+  exit 1
+fi
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "[error] python3 is not installed" >&2
@@ -165,6 +174,30 @@ EOF
 echo "[info] Installing launchers"
 install -m 0755 "$TMP_SCAN" "$BIN_DIR/wifi2ble-bridge-scan"
 install -m 0755 "$TMP_RELAY" "$BIN_DIR/wifi2ble-bridge-relay"
+
+SYSTEMD_DIR="/etc/systemd/system"
+SRC_SYSTEMD_DIR="$ROOT_DIR/systemd"
+ENV_FILE="/etc/default/wifi2ble-bridge-relay"
+
+if [[ -d "$SYSTEMD_DIR" && -f "$SRC_SYSTEMD_DIR/wifi2ble-bridge-relay.service" ]]; then
+  echo "[info] Installing systemd unit"
+  install -m 0644 "$SRC_SYSTEMD_DIR/wifi2ble-bridge-relay.service" "$SYSTEMD_DIR/wifi2ble-bridge-relay.service"
+
+  if [[ ! -f "$ENV_FILE" ]]; then
+    echo "[info] Installing environment file: $ENV_FILE"
+    install -m 0640 "$SRC_SYSTEMD_DIR/wifi2ble-bridge-relay.env" "$ENV_FILE"
+    echo "[warn] Set BLE_ADDRESS in $ENV_FILE before starting the service"
+  else
+    echo "[info] Environment file already exists, not overwriting: $ENV_FILE"
+  fi
+
+  systemctl daemon-reload 2>/dev/null || true
+  echo "[ok] systemd unit installed"
+  echo "[ok] Enable and start with:"
+  echo "      sudo systemctl enable --now wifi2ble-bridge-relay.service"
+else
+  echo "[info] Skipping systemd installation (not a systemd system or unit source not found)"
+fi
 
 echo "[ok] Installed"
 echo "[ok] Commands:"

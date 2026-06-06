@@ -1,0 +1,18 @@
+[Unit]
+Description=wifi2ble-bridge TCP->BLE relay
+After=network-online.target bluetooth.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/local/lib/wifi2ble-bridge
+EnvironmentFile=/etc/default/wifi2ble-bridge-relay
+ExecStartPre=-/usr/bin/bluetoothctl disconnect ${BLE_ADDRESS}
+ExecStart=/usr/local/bin/wifi2ble-bridge-relay
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

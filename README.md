@@ -55,13 +55,13 @@ Standaard luistert de relay op TCP poort `5000`.
 Gebruik de installer om alles onder een prefix te plaatsen (standaard `/usr/local`):
 
 ```sh
-./install.sh
+sudo ./install.sh
 ```
 
 Of met een eigen prefix:
 
 ```sh
-./install.sh --prefix /opt/wifi2ble-bridge
+sudo ./install.sh --prefix /opt/wifi2ble-bridge
 ```
 
 Na installatie zijn dit de commando's:
@@ -81,10 +81,35 @@ Voor extra logging:
 
 Voor afsluiten: `Ctrl+C` stopt listener, actieve TCP sessie(s) en BLE sessie.
 
+## Automatisch starten met systemd
+
+`install.sh` installeert de systemd unit en de environment file automatisch (vereist root).
+
+**Belangrijk:** stel daarna het BLE-adres in vóór je de service start:
+
+```sh
+sudo nano /etc/default/wifi2ble-bridge-relay
+# Zet: BLE_ADDRESS=AA:BB:CC:DD:EE:FF
+```
+
+Vervolgens de service activeren:
+
+```sh
+sudo systemctl enable --now wifi2ble-bridge-relay.service
+```
+
+Status en logs bekijken:
+
+```sh
+systemctl status wifi2ble-bridge-relay.service
+journalctl -u wifi2ble-bridge-relay.service -f
+```
+
 ## Projectstructuur
 
 - [python/](python/) Python scripts en requirements
 - [install.sh](install.sh) Linux installer (prefix-based)
+- [systemd/](systemd/) systemd unit en env-bestand
 
 ## Privacy / local config
 
