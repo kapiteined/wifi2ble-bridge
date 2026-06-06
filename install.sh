@@ -17,17 +17,17 @@ while [[ $# -gt 0 ]]; do
       cat <<EOF
 Usage: $0 [--prefix DIR]
 
-Install mesh-emu Python relay tooling into a system prefix.
+Install wifi2ble-bridge Python relay tooling into a system prefix.
 
 Defaults:
   --prefix /usr/local
 
 Installed files:
   BIN: \
-    $PREFIX/bin/mesh-emu-relay\
-    $PREFIX/bin/mesh-emu-scan
+    $PREFIX/bin/wifi2ble-bridge-relay\
+    $PREFIX/bin/wifi2ble-bridge-scan
   LIB: \
-    $PREFIX/lib/mesh-emu/python/*
+    $PREFIX/lib/wifi2ble-bridge/python/*
 EOF
       exit 0
       ;;
@@ -42,13 +42,24 @@ done
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_PY_DIR="$ROOT_DIR/python"
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[error] python3 is not installed" >&2
+  exit 1
+fi
+
+if ! python3 -c 'import venv' >/dev/null 2>&1; then
+  echo "[error] Python venv module is not available." >&2
+  echo "       Install python3-venv (or python3.11-venv) and retry." >&2
+  exit 1
+fi
+
 if [[ ! -d "$SRC_PY_DIR" ]]; then
   echo "[error] Source python directory not found: $SRC_PY_DIR" >&2
   exit 1
 fi
 
 BIN_DIR="$PREFIX/bin"
-LIB_DIR="$PREFIX/lib/mesh-emu"
+LIB_DIR="$PREFIX/lib/wifi2ble-bridge"
 DEST_PY_DIR="$LIB_DIR/python"
 
 echo "[info] Installing to prefix: $PREFIX"
@@ -57,8 +68,8 @@ install -d "$BIN_DIR" "$DEST_PY_DIR"
 
 echo "[info] Installing Python files"
 install -m 0644 "$SRC_PY_DIR/requirements.txt" "$DEST_PY_DIR/requirements.txt"
-install -m 0755 "$SRC_PY_DIR/ble_scan.py" "$DEST_PY_DIR/ble_scan.py"
-install -m 0755 "$SRC_PY_DIR/meshcore_tcp_ble_relay.py" "$DEST_PY_DIR/meshcore_tcp_ble_relay.py"
+install -m 0755 "$SRC_PY_DIR/wifi2ble_bridge_scan.py" "$DEST_PY_DIR/wifi2ble_bridge_scan.py"
+install -m 0755 "$SRC_PY_DIR/wifi2ble_bridge_relay.py" "$DEST_PY_DIR/wifi2ble_bridge_relay.py"
 
 TMP_SCAN="$(mktemp)"
 TMP_RELAY="$(mktemp)"
@@ -71,7 +82,7 @@ set -euo pipefail
 APP_DIR="$LIB_DIR"
 VENV_DIR="\$APP_DIR/.venv"
 REQ_FILE="\$APP_DIR/python/requirements.txt"
-SCRIPT_FILE="\$APP_DIR/python/ble_scan.py"
+SCRIPT_FILE="\$APP_DIR/python/wifi2ble_bridge_scan.py"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "[error] python3 is not installed" >&2
@@ -106,7 +117,7 @@ set -euo pipefail
 APP_DIR="$LIB_DIR"
 VENV_DIR="\$APP_DIR/.venv"
 REQ_FILE="\$APP_DIR/python/requirements.txt"
-SCRIPT_FILE="\$APP_DIR/python/meshcore_tcp_ble_relay.py"
+SCRIPT_FILE="\$APP_DIR/python/wifi2ble_bridge_relay.py"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "[error] python3 is not installed" >&2
@@ -152,10 +163,10 @@ exec python "\$SCRIPT_FILE" "\$@"
 EOF
 
 echo "[info] Installing launchers"
-install -m 0755 "$TMP_SCAN" "$BIN_DIR/mesh-emu-scan"
-install -m 0755 "$TMP_RELAY" "$BIN_DIR/mesh-emu-relay"
+install -m 0755 "$TMP_SCAN" "$BIN_DIR/wifi2ble-bridge-scan"
+install -m 0755 "$TMP_RELAY" "$BIN_DIR/wifi2ble-bridge-relay"
 
 echo "[ok] Installed"
 echo "[ok] Commands:"
-echo "      $BIN_DIR/mesh-emu-scan"
-echo "      $BIN_DIR/mesh-emu-relay"
+echo "      $BIN_DIR/wifi2ble-bridge-scan"
+echo "      $BIN_DIR/wifi2ble-bridge-relay"

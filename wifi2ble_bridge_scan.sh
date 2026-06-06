@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY_DIR="$ROOT_DIR/python"
 VENV_DIR="$PY_DIR/.venv"
 REQUIREMENTS_FILE="$PY_DIR/requirements.txt"
-APP_FILE="$PY_DIR/ble_scan.py"
+APP_FILE="$PY_DIR/wifi2ble_bridge_scan.py"
 
 if [[ ! -f "$APP_FILE" ]]; then
   echo "[error] Scanner script not found: $APP_FILE" >&2
@@ -14,6 +14,12 @@ fi
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "[error] python3 is not installed" >&2
+  exit 1
+fi
+
+if ! python3 -c 'import venv' >/dev/null 2>&1; then
+  echo "[error] Python venv module is not available." >&2
+  echo "       Install python3-venv (or python3.11-venv) and retry." >&2
   exit 1
 fi
 
@@ -36,5 +42,5 @@ source "$VENV_DIR/bin/activate"
 python -m pip install --upgrade pip >/dev/null
 python -m pip install -r "$REQUIREMENTS_FILE"
 
-echo "[info] Starting BLE scan"
+echo "[info] Starting wifi2ble-bridge BLE scan"
 exec python "$APP_FILE" "$@"

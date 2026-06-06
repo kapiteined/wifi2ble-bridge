@@ -20,7 +20,7 @@ stamp-h1
 *.a
 *.so
 *.so.*
-mesh-emu
+wifi2ble-bridge
 
 # Python
 debug.log
