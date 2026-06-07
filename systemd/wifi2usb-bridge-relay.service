@@ -1,0 +1,17 @@
+[Unit]
+Description=wifi2usb-bridge TCP->USB serial relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/local/lib/wifi2usb-bridge
+EnvironmentFile=/etc/default/wifi2usb-bridge-relay
+ExecStart=/usr/local/bin/wifi2usb-bridge-relay.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

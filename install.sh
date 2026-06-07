@@ -17,21 +17,27 @@ while [[ $# -gt 0 ]]; do
       cat <<EOF
 Usage: $0 [--prefix DIR]
 
-Install wifi2ble-bridge Python relay tooling into a system prefix.
+Install wifi2ble-bridge and wifi2usb-bridge Python relay tooling into a system prefix.
 
 Defaults:
   --prefix /usr/local
 
 Installed files:
   BIN: \
-    $PREFIX/bin/wifi2ble-bridge-relay.sh\
-    $PREFIX/bin/wifi2ble-bridge-scan.sh
-  LIB: \
+    $PREFIX/bin/wifi2ble-bridge-relay.sh \
+    $PREFIX/bin/wifi2ble-bridge-scan.sh \
+    $PREFIX/bin/wifi2usb-bridge-relay.sh \
+    $PREFIX/bin/wifi2usb-bridge-scan.sh
+  LIB (BLE): \
     $PREFIX/lib/wifi2ble-bridge/python/*
+  LIB (USB): \
+    $PREFIX/lib/wifi2usb-bridge/python/*
   SYSTEMD: \
-    /etc/systemd/system/wifi2ble-bridge-relay.service
+    /etc/systemd/system/wifi2ble-bridge-relay.service \
+    /etc/systemd/system/wifi2usb-bridge-relay.service
   ENV (only if not already present): \
-    /etc/default/wifi2ble-bridge-relay
+    /etc/default/wifi2ble-bridge-relay \
+    /etc/default/wifi2usb-bridge-relay
 EOF
       exit 0
       ;;
@@ -70,19 +76,28 @@ fi
 BIN_DIR="$PREFIX/bin"
 LIB_DIR="$PREFIX/lib/wifi2ble-bridge"
 DEST_PY_DIR="$LIB_DIR/python"
+USB_LIB_DIR="$PREFIX/lib/wifi2usb-bridge"
+USB_DEST_PY_DIR="$USB_LIB_DIR/python"
 
 echo "[info] Installing to prefix: $PREFIX"
 echo "[info] Creating directories"
-install -d "$BIN_DIR" "$DEST_PY_DIR"
+install -d "$BIN_DIR" "$DEST_PY_DIR" "$USB_DEST_PY_DIR"
 
-echo "[info] Installing Python files"
+echo "[info] Installing BLE Python files"
 install -m 0644 "$SRC_PY_DIR/requirements.txt" "$DEST_PY_DIR/requirements.txt"
 install -m 0755 "$SRC_PY_DIR/wifi2ble_bridge_scan.py" "$DEST_PY_DIR/wifi2ble_bridge_scan.py"
 install -m 0755 "$SRC_PY_DIR/wifi2ble_bridge_relay.py" "$DEST_PY_DIR/wifi2ble_bridge_relay.py"
 
+echo "[info] Installing USB Python files"
+install -m 0644 "$SRC_PY_DIR/requirements_usb.txt" "$USB_DEST_PY_DIR/requirements_usb.txt"
+install -m 0755 "$SRC_PY_DIR/wifi2usb_bridge_scan.py" "$USB_DEST_PY_DIR/wifi2usb_bridge_scan.py"
+install -m 0755 "$SRC_PY_DIR/wifi2usb_bridge_relay.py" "$USB_DEST_PY_DIR/wifi2usb_bridge_relay.py"
+
 TMP_SCAN="$(mktemp)"
 TMP_RELAY="$(mktemp)"
-trap 'rm -f "$TMP_SCAN" "$TMP_RELAY"' EXIT
+TMP_USB_SCAN="$(mktemp)"
+TMP_USB_RELAY="$(mktemp)"
+trap 'rm -f "$TMP_SCAN" "$TMP_RELAY" "$TMP_USB_SCAN" "$TMP_USB_RELAY"' EXIT
 
 cat > "$TMP_SCAN" <<EOF
 #!/usr/bin/env bash
@@ -171,9 +186,93 @@ fi
 exec python "\$SCRIPT_FILE" "\$@"
 EOF
 
+cat > "$TMP_USB_SCAN" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="$USB_LIB_DIR"
+VENV_DIR="\$APP_DIR/.venv"
+REQ_FILE="\$APP_DIR/python/requirements_usb.txt"
+SCRIPT_FILE="\$APP_DIR/python/wifi2usb_bridge_scan.py"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[error] python3 is not installed" >&2
+  exit 1
+fi
+
+if [[ ! -f "\$VENV_DIR/bin/activate" ]]; then
+  if [[ -d "\$VENV_DIR" ]]; then
+    echo "[warn] Incomplete virtual environment found in \$VENV_DIR, recreating"
+    rm -rf "\$VENV_DIR"
+  fi
+  echo "[info] Creating virtual environment in \$VENV_DIR"
+  if ! python3 -m venv "\$VENV_DIR"; then
+    echo "[error] Failed to create virtual environment." >&2
+    echo "       Install python3-venv (or python3.11-venv) and retry." >&2
+    exit 1
+  fi
+fi
+
+# shellcheck disable=SC1091
+source "\$VENV_DIR/bin/activate"
+python -m pip install --upgrade pip >/dev/null
+python -m pip install -r "\$REQ_FILE"
+
+exec python "\$SCRIPT_FILE" "\$@"
+EOF
+
+cat > "$TMP_USB_RELAY" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="$USB_LIB_DIR"
+VENV_DIR="\$APP_DIR/.venv"
+REQ_FILE="\$APP_DIR/python/requirements_usb.txt"
+SCRIPT_FILE="\$APP_DIR/python/wifi2usb_bridge_relay.py"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[error] python3 is not installed" >&2
+  exit 1
+fi
+
+if [[ ! -f "\$VENV_DIR/bin/activate" ]]; then
+  if [[ -d "\$VENV_DIR" ]]; then
+    echo "[warn] Incomplete virtual environment found in \$VENV_DIR, recreating"
+    rm -rf "\$VENV_DIR"
+  fi
+  echo "[info] Creating virtual environment in \$VENV_DIR"
+  if ! python3 -m venv "\$VENV_DIR"; then
+    echo "[error] Failed to create virtual environment." >&2
+    echo "       Install python3-venv (or python3.11-venv) and retry." >&2
+    exit 1
+  fi
+fi
+
+# shellcheck disable=SC1091
+source "\$VENV_DIR/bin/activate"
+python -m pip install --upgrade pip >/dev/null
+python -m pip install -r "\$REQ_FILE"
+
+HAS_USB_ARG=0
+for arg in "\$@"; do
+  if [[ "\$arg" == --usb-device=* || "\$arg" == "--usb-device" ]]; then
+    HAS_USB_ARG=1
+    break
+  fi
+done
+
+if [[ "\$HAS_USB_ARG" -eq 0 && -n "\${USB_DEVICE:-}" ]]; then
+  set -- --usb-device "\$USB_DEVICE" "\$@"
+fi
+
+exec python "\$SCRIPT_FILE" "\$@"
+EOF
+
 echo "[info] Installing launchers"
 install -m 0755 "$TMP_SCAN" "$BIN_DIR/wifi2ble-bridge-scan.sh"
 install -m 0755 "$TMP_RELAY" "$BIN_DIR/wifi2ble-bridge-relay.sh"
+install -m 0755 "$TMP_USB_SCAN" "$BIN_DIR/wifi2usb-bridge-scan.sh"
+install -m 0755 "$TMP_USB_RELAY" "$BIN_DIR/wifi2usb-bridge-relay.sh"
 
 SYSTEMD_DIR="/etc/systemd/system"
 SRC_SYSTEMD_DIR="$ROOT_DIR/systemd"
@@ -192,14 +291,39 @@ if [[ -d "$SYSTEMD_DIR" && -f "$SRC_SYSTEMD_DIR/wifi2ble-bridge-relay.service" ]
   fi
 
   systemctl daemon-reload 2>/dev/null || true
-  echo "[ok] systemd unit installed"
+  echo "[ok] BLE systemd unit installed"
   echo "[ok] Enable and start with:"
   echo "      sudo systemctl enable --now wifi2ble-bridge-relay.service"
 else
-  echo "[info] Skipping systemd installation (not a systemd system or unit source not found)"
+  echo "[info] Skipping BLE systemd installation (not a systemd system or unit source not found)"
+fi
+
+# ---- USB bridge systemd service ----
+USB_ENV_FILE="/etc/default/wifi2usb-bridge-relay"
+
+if [[ -d "$SYSTEMD_DIR" && -f "$SRC_SYSTEMD_DIR/wifi2usb-bridge-relay.service" ]]; then
+  echo "[info] Installing USB systemd unit"
+  install -m 0644 "$SRC_SYSTEMD_DIR/wifi2usb-bridge-relay.service" "$SYSTEMD_DIR/wifi2usb-bridge-relay.service"
+
+  if [[ ! -f "$USB_ENV_FILE" ]]; then
+    echo "[info] Installing USB environment file: $USB_ENV_FILE"
+    install -m 0640 "$SRC_SYSTEMD_DIR/wifi2usb-bridge-relay.env" "$USB_ENV_FILE"
+    echo "[info] USB_DEVICE=auto in $USB_ENV_FILE (auto-detects companion by VID:PID)"
+  else
+    echo "[info] USB environment file already exists, not overwriting: $USB_ENV_FILE"
+  fi
+
+  systemctl daemon-reload 2>/dev/null || true
+  echo "[ok] USB systemd unit installed"
+  echo "[ok] Enable and start with:"
+  echo "      sudo systemctl enable --now wifi2usb-bridge-relay.service"
+else
+  echo "[info] Skipping USB systemd installation (not a systemd system or unit source not found)"
 fi
 
 echo "[ok] Installed"
 echo "[ok] Commands:"
 echo "      $BIN_DIR/wifi2ble-bridge-scan.sh"
 echo "      $BIN_DIR/wifi2ble-bridge-relay.sh"
+echo "      $BIN_DIR/wifi2usb-bridge-scan.sh"
+echo "      $BIN_DIR/wifi2usb-bridge-relay.sh"

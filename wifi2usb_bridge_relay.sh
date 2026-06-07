@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY_DIR="$ROOT_DIR/python"
 VENV_DIR="$PY_DIR/.venv"
-REQUIREMENTS_FILE="$PY_DIR/requirements.txt"
-APP_FILE="$PY_DIR/wifi2ble_bridge_relay.py"
+REQUIREMENTS_FILE="$PY_DIR/requirements_usb.txt"
+APP_FILE="$PY_DIR/wifi2usb_bridge_relay.py"
 
 if [[ ! -f "$APP_FILE" ]]; then
   echo "[error] Relay script not found: $APP_FILE" >&2
@@ -52,22 +52,19 @@ source "$VENV_DIR/bin/activate"
 python -m pip install --upgrade pip >/dev/null
 python -m pip install -r "$REQUIREMENTS_FILE"
 
-HAS_BLE_ARG=0
+# If --usb-device is not given on the command line but USB_DEVICE is set in
+# the environment (e.g. from the systemd EnvironmentFile), inject it.
+HAS_USB_ARG=0
 for arg in "$@"; do
-  if [[ "$arg" == --ble-address=* || "$arg" == "--ble-address" ]]; then
-    HAS_BLE_ARG=1
+  if [[ "$arg" == --usb-device=* || "$arg" == "--usb-device" ]]; then
+    HAS_USB_ARG=1
     break
   fi
 done
 
-if [[ "$HAS_BLE_ARG" -eq 0 ]]; then
-  if [[ -z "${BLE_ADDRESS:-}" ]]; then
-    echo "[error] Missing BLE address." >&2
-    echo "       Set BLE_ADDRESS env var, or pass --ble-address AA:BB:CC:DD:EE:FF" >&2
-    exit 2
-  fi
-  set -- --ble-address "$BLE_ADDRESS" "$@"
+if [[ "$HAS_USB_ARG" -eq 0 && -n "${USB_DEVICE:-}" ]]; then
+  set -- --usb-device "$USB_DEVICE" "$@"
 fi
 
-echo "[info] Starting wifi2ble-bridge TCP->BLE relay"
+echo "[info] Starting wifi2usb-bridge TCP->USB relay"
 exec python "$APP_FILE" "$@"

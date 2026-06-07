@@ -23,6 +23,16 @@ if ! python3 -c 'import venv' >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! python3 -m pip --version >/dev/null 2>&1; then
+  echo "[error] pip is not available for your Python installation." >&2
+  echo "        Install it first:" >&2
+  echo "          Gentoo:        sudo emerge dev-python/pip" >&2
+  echo "          Debian/Ubuntu: sudo apt install python3-pip" >&2
+  echo "          Fedora/RHEL:   sudo dnf install python3-pip" >&2
+  echo "          Arch:          sudo pacman -S python-pip" >&2
+  exit 1
+fi
+
 if [[ ! -f "$VENV_DIR/bin/activate" ]]; then
   if [[ -d "$VENV_DIR" ]]; then
     echo "[warn] Incomplete virtual environment found in $VENV_DIR, recreating"

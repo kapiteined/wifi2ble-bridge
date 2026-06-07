@@ -4,11 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY_DIR="$ROOT_DIR/python"
 VENV_DIR="$PY_DIR/.venv"
-REQUIREMENTS_FILE="$PY_DIR/requirements.txt"
-APP_FILE="$PY_DIR/wifi2ble_bridge_relay.py"
+REQUIREMENTS_FILE="$PY_DIR/requirements_usb.txt"
+APP_FILE="$PY_DIR/wifi2usb_bridge_scan.py"
 
 if [[ ! -f "$APP_FILE" ]]; then
-  echo "[error] Relay script not found: $APP_FILE" >&2
+  echo "[error] Scanner script not found: $APP_FILE" >&2
   exit 1
 fi
 
@@ -52,22 +52,5 @@ source "$VENV_DIR/bin/activate"
 python -m pip install --upgrade pip >/dev/null
 python -m pip install -r "$REQUIREMENTS_FILE"
 
-HAS_BLE_ARG=0
-for arg in "$@"; do
-  if [[ "$arg" == --ble-address=* || "$arg" == "--ble-address" ]]; then
-    HAS_BLE_ARG=1
-    break
-  fi
-done
-
-if [[ "$HAS_BLE_ARG" -eq 0 ]]; then
-  if [[ -z "${BLE_ADDRESS:-}" ]]; then
-    echo "[error] Missing BLE address." >&2
-    echo "       Set BLE_ADDRESS env var, or pass --ble-address AA:BB:CC:DD:EE:FF" >&2
-    exit 2
-  fi
-  set -- --ble-address "$BLE_ADDRESS" "$@"
-fi
-
-echo "[info] Starting wifi2ble-bridge TCP->BLE relay"
+echo "[info] Starting wifi2usb-bridge USB scan"
 exec python "$APP_FILE" "$@"
